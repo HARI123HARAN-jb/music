@@ -1,13 +1,18 @@
 package main
 
 import (
+	"embed"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
 )
+
+//go:embed static/*
+var staticFiles embed.FS
 
 func main() {
 	// Load configuration
@@ -49,7 +54,6 @@ func main() {
 
 		// Set headers for streaming
 		w.Header().Set("Content-Type", "audio/mpeg")
-		// w.Header().Set("Content-Length", fmt.Sprintf("%d", resp.ContentLength)) // Optional, good for progress bars
 
 		_, err = io.Copy(w, resp.Body)
 		if err != nil {
@@ -57,9 +61,12 @@ func main() {
 		}
 	})
 
-	// Serve Static Files
-	fs := http.FileServer(http.Dir("./static"))
-	http.Handle("/", fs)
+	// Serve Static Files from Embed
+	staticFS, err := fs.Sub(staticFiles, "static")
+	if err != nil {
+		log.Fatal(err)
+	}
+	http.Handle("/", http.FileServer(http.FS(staticFS)))
 
 	port := os.Getenv("PORT")
 	if port == "" {
