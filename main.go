@@ -9,12 +9,17 @@ import (
 	"log"
 	"net/http"
 	"os"
+
+	"github.com/joho/godotenv"
 )
 
 //go:embed static/*
 var staticFiles embed.FS
 
 func main() {
+	// Load .env file if it exists
+	_ = godotenv.Load()
+
 	// Load configuration
 	folderID := os.Getenv("DRIVE_FOLDER_ID")
 	if folderID == "" {
@@ -29,7 +34,7 @@ func main() {
 
 	// API Endpoints
 	http.HandleFunc("/api/songs", func(w http.ResponseWriter, r *http.Request) {
-		songs, err := driveService.ListSongs(folderID)
+		songs, err := driveService.ListSongs(folderID, "Unknown Artist")
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to list songs: %v", err), http.StatusInternalServerError)
 			return

@@ -11,9 +11,15 @@ const searchInput = document.getElementById('searchInput');
 const currentTitle = document.getElementById('currentTitle');
 const currentArtist = document.getElementById('currentArtist');
 
+// Navigation Elements
+const navHome = document.getElementById('navHome');
+const navFavorites = document.getElementById('navFavorites');
+const navLibrary = document.getElementById('navLibrary');
+
 let songs = [];
 let currentSongIndex = -1;
 let isPlaying = false;
+let currentView = 'home'; // 'home', 'favorites', 'library'
 
 // Fetch songs from API
 async function fetchSongs() {
@@ -31,34 +37,129 @@ async function fetchSongs() {
 // Render songs to the list
 function renderSongs(songsToRender) {
     songListEl.innerHTML = '';
-    if (songsToRender.length === 0) {
+    if (!songsToRender || songsToRender.length === 0) {
         songListEl.innerHTML = '<li>No songs found</li>';
         return;
     }
 
-    songsToRender.forEach((song, index) => {
-        const li = document.createElement('li');
-        li.className = 'song-item';
-        if (songs.indexOf(song) === currentSongIndex) {
-            li.classList.add('active');
+    // Group songs by Artist
+    const groupedSongs = {};
+    songsToRender.forEach(song => {
+        const artist = song.artist || 'Unknown Artist';
+        if (!groupedSongs[artist]) {
+            groupedSongs[artist] = [];
         }
-
-        li.innerHTML = `
-            <div class="icon"><i class="fa-solid fa-music"></i></div>
-            <div class="info">
-                <span class="title">${song.name}</span>
-                <span class="artist">Google Drive</span>
-            </div>
-        `;
-
-        li.addEventListener('click', () => {
-            // Find the original index in the main 'songs' array
-            const originalIndex = songs.indexOf(song);
-            playSong(originalIndex);
-        });
-
-        songListEl.appendChild(li);
+        groupedSongs[artist].push(song);
     });
+
+    // Iterate through groups and render
+    for (const [artist, artistSongs] of Object.entries(groupedSongs)) {
+        // Create Artist Header
+        const header = document.createElement('li');
+        header.className = 'artist-header';
+        header.textContent = artist;
+        songListEl.appendChild(header);
+
+        artistSongs.forEach(song => {
+            const li = document.createElement('li');
+            li.className = 'song-item';
+            if (songs.indexOf(song) === currentSongIndex) {
+                li.classList.add('active');
+            }
+
+            const likedClass = isLiked(song.id) ? 'fa-solid' : 'fa-regular';
+
+            li.innerHTML = `
+                <div class="icon"><i class="fa-solid fa-music"></i></div>
+                <div class="info">
+                    <span class="title">${song.name}</span>
+                    <span class="artist">${song.artist}</span>
+                </div>
+                <div class="actions">
+                    <i class="${likedClass} fa-heart like-btn" data-id="${song.id}"></i>
+                </div>
+            `;
+
+            // Click on song to play
+            li.addEventListener('click', (e) => {
+                if (e.target.classList.contains('like-btn')) return; // Ignore clicks on heart
+                const originalIndex = songs.indexOf(song);
+                playSong(originalIndex);
+            });
+
+            // Click on heart to like
+            const likeBtn = li.querySelector('.like-btn');
+            likeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleLike(song.id);
+                // Re-render if in Favorites view to remove unliked song immediately
+                if (currentView === 'favorites') {
+                    filterAndRender();
+                } else {
+                    // Just update icon
+                    const isNowLiked = isLiked(song.id);
+                    likeBtn.classList.toggle('fa-solid', isNowLiked);
+                    likeBtn.classList.toggle('fa-regular', !isNowLiked);
+                }
+            });
+
+            songListEl.appendChild(li);
+        });
+    }
+}
+
+// Favorites Logic
+function getFavorites() {
+    const stored = localStorage.getItem('favorites');
+    return stored ? JSON.parse(stored) : [];
+}
+
+function isLiked(id) {
+    const favorites = getFavorites();
+    return favorites.includes(id);
+}
+
+function toggleLike(id) {
+    let favorites = getFavorites();
+    if (favorites.includes(id)) {
+        favorites = favorites.filter(favId => favId !== id);
+    } else {
+        favorites.push(id);
+    }
+    localStorage.setItem('favorites', JSON.stringify(favorites));
+}
+
+// Navigation Logic
+function setView(view) {
+    currentView = view;
+    // Update Active Nav State
+    document.querySelectorAll('.sidebar nav li').forEach(el => el.classList.remove('active'));
+
+    if (view === 'home') navHome.classList.add('active');
+    else if (view === 'favorites') navFavorites.classList.add('active');
+    else if (view === 'library') navLibrary.classList.add('active');
+
+    filterAndRender();
+}
+
+function filterAndRender() {
+    let filteredSongs = songs;
+
+    if (currentView === 'favorites') {
+        const favorites = getFavorites();
+        filteredSongs = songs.filter(song => favorites.includes(song.id));
+    }
+
+    // Apply search filter if exists
+    const term = searchInput.value.toLowerCase();
+    if (term) {
+        filteredSongs = filteredSongs.filter(song =>
+            song.name.toLowerCase().includes(term) ||
+            song.artist.toLowerCase().includes(term)
+        );
+    }
+
+    renderSongs(filteredSongs);
 }
 
 // Play a specific song
@@ -70,17 +171,10 @@ function playSong(index) {
 
     // Update UI
     currentTitle.textContent = song.name;
-    currentArtist.textContent = "Google Drive Audio";
+    currentArtist.textContent = song.artist;
 
-    // Highlight active song
-    const items = document.querySelectorAll('.song-item');
-    items.forEach(item => item.classList.remove('active'));
-    // Note: This simple highlighting assumes the list hasn't been re-rendered/filtered differently.
-    // For a robust app, we'd re-render or find by ID.
-    // Re-rendering to ensure correctness with search filters:
-    renderSongs(songs); // Reset filter to show all or keep current filter? 
-    // Let's keep it simple: if searching, we might lose the active class if we don't handle it carefully.
-    // For now, we just play.
+    // Highlight active song (simple re-render to ensure correctness)
+    filterAndRender();
 
     // Set audio source
     audioPlayer.src = `/api/stream?id=${song.id}`;
@@ -132,6 +226,9 @@ audioPlayer.addEventListener('timeupdate', () => {
         const progressPercent = (currentTime / duration) * 100;
         progressBar.value = progressPercent;
 
+        // Update background gradient to show progress
+        progressBar.style.background = `linear-gradient(to right, var(--text-primary) ${progressPercent}%, #535353 ${progressPercent}%)`;
+
         // Format time
         const formatTime = (time) => {
             const min = Math.floor(time / 60);
@@ -155,11 +252,14 @@ volumeBar.addEventListener('input', (e) => {
     audioPlayer.volume = e.target.value;
 });
 
-searchInput.addEventListener('input', (e) => {
-    const term = e.target.value.toLowerCase();
-    const filtered = songs.filter(song => song.name.toLowerCase().includes(term));
-    renderSongs(filtered);
+searchInput.addEventListener('input', () => {
+    filterAndRender();
 });
+
+// Navigation Listeners
+navHome.addEventListener('click', () => setView('home'));
+navFavorites.addEventListener('click', () => setView('favorites'));
+navLibrary.addEventListener('click', () => setView('library')); // Library behaves same as Home for now
 
 // Initialize
 fetchSongs();

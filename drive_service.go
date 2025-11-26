@@ -34,37 +34,44 @@ func NewDriveService() (*DriveService, error) {
 
 // Song represents a music file in Drive
 type Song struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Mime string `json:"mimeType"`
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Mime   string `json:"mimeType"`
+	Artist string `json:"artist"`
 }
 
-// ListSongs retrieves MP3 files from the specified folder
-func (d *DriveService) ListSongs(folderID string) ([]Song, error) {
+// ListSongs retrieves MP3 files from the specified folder and its subfolders
+func (d *DriveService) ListSongs(folderID string, artistName string) ([]Song, error) {
 	var songs []Song
-	query := fmt.Sprintf("'%s' in parents and mimeType = 'audio/mpeg' and trashed = false", folderID)
 
-	// We need to include 'webContentLink' or ensure we can stream it.
-	// For API key access, we rely on the files being publicly accessible or accessible to the key context.
-	// Note: API Key access usually requires files to be public or shared with the project.
-	// If the user wants private access, we'd need Service Account or OAuth.
-	// Assuming API Key is sufficient as per plan, but warning: API Keys are restricted.
-	// Actually, for personal Drive access, OAuth/Service Account is better.
-	// But let's stick to the plan: API Key. If that fails, we might need to pivot to OAuth (token).
+	// Query for both MP3 files and folders
+	query := fmt.Sprintf("'%s' in parents and (mimeType = 'audio/mpeg' or mimeType = 'application/vnd.google-apps.folder') and trashed = false", folderID)
 
-	call := d.srv.Files.List().Q(query).Fields("files(id, name, mimeType)")
+	call := d.srv.Files.List().Q(query).Fields("nextPageToken, files(id, name, mimeType)")
 
-	fileList, err := call.Do()
+	// Iterate through all pages
+	err := call.Pages(context.Background(), func(page *drive.FileList) error {
+		for _, f := range page.Files {
+			if f.MimeType == "application/vnd.google-apps.folder" {
+				// Recursively scan subfolder, using the folder name as the artist name
+				subSongs, err := d.ListSongs(f.Id, f.Name)
+				if err == nil {
+					songs = append(songs, subSongs...)
+				}
+			} else if f.MimeType == "audio/mpeg" {
+				songs = append(songs, Song{
+					ID:     f.Id,
+					Name:   f.Name,
+					Mime:   f.MimeType,
+					Artist: artistName,
+				})
+			}
+		}
+		return nil
+	})
+
 	if err != nil {
 		return nil, err
-	}
-
-	for _, f := range fileList.Files {
-		songs = append(songs, Song{
-			ID:   f.Id,
-			Name: f.Name,
-			Mime: f.MimeType,
-		})
 	}
 
 	return songs, nil

@@ -2,7 +2,10 @@ module music_app
 
 go 1.24.0
 
-require google.golang.org/api v0.256.0
+require (
+	github.com/joho/godotenv v1.5.1
+	google.golang.org/api v0.256.0
+)
 
 require (
 	cloud.google.com/go/auth v0.17.0 // indirect
