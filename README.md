@@ -58,7 +58,10 @@ This application is ready to be deployed on Render as a Web Service.
     - Scroll down to the **Environment Variables** section.
     - Add the following keys:
         - `GOOGLE_API_KEY`: Your Google Cloud API Key.
+            - *Example*: `AIzaSyD-5...` (starts with `AIza`)
         - `DRIVE_FOLDER_ID`: The ID of the Google Drive folder containing your music.
+            - *Example*: `1A2B3C4D5E6F7G8H9I0J` (the last part of the folder URL)
+            - *URL*: `drive.google.com/drive/folders/1A2B3C4D5E6F7G8H9I0J` -> ID is `1A2B3C4D5E6F7G8H9I0J`
 
 4.  **Deploy**:
     - Click **Create Web Service**.
