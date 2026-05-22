@@ -50,19 +50,48 @@ func main() {
 			return
 		}
 
-		resp, err := driveService.GetFileStream(id)
+		apiKey := os.Getenv("GOOGLE_API_KEY")
+		url := fmt.Sprintf("https://www.googleapis.com/drive/v3/files/%s?alt=media&key=%s", id, apiKey)
+
+		req, err := http.NewRequestWithContext(r.Context(), "GET", url, nil)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to create stream request: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Forward the Range header if requested by the client (browser)
+		if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
+			req.Header.Set("Range", rangeHeader)
+		}
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to get file stream: %v", err), http.StatusInternalServerError)
 			return
 		}
 		defer resp.Body.Close()
 
-		// Set headers for streaming
-		w.Header().Set("Content-Type", "audio/mpeg")
+		// Copy key headers back to client
+		if val := resp.Header.Get("Content-Range"); val != "" {
+			w.Header().Set("Content-Range", val)
+		}
+		if val := resp.Header.Get("Content-Length"); val != "" {
+			w.Header().Set("Content-Length", val)
+		}
+		if val := resp.Header.Get("Content-Type"); val != "" {
+			w.Header().Set("Content-Type", val)
+		} else {
+			w.Header().Set("Content-Type", "audio/mpeg")
+		}
+		w.Header().Set("Accept-Ranges", "bytes")
+
+		// Write status code (usually 206 for ranges, or 200)
+		w.WriteHeader(resp.StatusCode)
 
 		_, err = io.Copy(w, resp.Body)
 		if err != nil {
-			log.Printf("Error streaming file: %v", err)
+			log.Printf("Error streaming file range: %v", err)
 		}
 	})
 

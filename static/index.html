@@ -4,75 +4,189 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cloud Music Player</title>
+    <title>VibeStream - Your Personal Premium Music Hub</title>
     <link rel="stylesheet" href="style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
-    <!-- Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Fonts and FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 
 <body>
     <div class="app-container">
+        
+        <!-- Sidebar Panel -->
         <aside class="sidebar">
-            <div class="logo">
-                <i class="fa-solid fa-music"></i> <span>VibeStream</span>
+            <div class="logo" id="logoClick">
+                <i class="fa-solid fa-circle-play"></i> <span>VibeStream</span>
             </div>
+            
             <nav>
                 <ul>
                     <li class="active" id="navHome"><i class="fa-solid fa-house"></i> Home</li>
-                    <li id="navFavorites"><i class="fa-solid fa-heart"></i> Favorites</li>
-                    <li id="navLibrary"><i class="fa-solid fa-folder"></i> Library</li>
+                    <li id="navFavorites"><i class="fa-solid fa-heart"></i> Liked Songs</li>
+                    <li id="navQueue"><i class="fa-solid fa-list-ul"></i> Playback Queue</li>
                 </ul>
             </nav>
+
+            <hr style="border: none; border-top: 1px solid var(--border-color);">
+
+            <!-- Playlists Section -->
+            <div class="sidebar-playlists">
+                <div class="sidebar-playlists-header">
+                    <span>Playlists</span>
+                    <button id="addPlaylistBtn" title="Create Playlist"><i class="fa-solid fa-plus"></i></button>
+                </div>
+                <ul class="playlists-list" id="playlistsList">
+                    <!-- Dynamic playlists will be loaded here -->
+                </ul>
+            </div>
         </aside>
 
+        <!-- Main Content Area -->
         <main class="content">
             <header>
                 <div class="search-bar">
-                    <i class="fa-solid fa-search"></i>
-                    <input type="text" id="searchInput" placeholder="Search for songs...">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="searchInput" placeholder="Search for songs, artists, or folders...">
                 </div>
             </header>
 
-            <div class="song-list-container">
-                <h2>All Songs</h2>
-                <ul id="songList" class="song-list">
-                    <!-- Songs will be injected here -->
-                    <li class="loading">Loading songs from Drive...</li>
-                </ul>
+            <!-- VIEW: Home (All Songs Grid) -->
+            <div class="view-panel active" id="viewHome">
+                <div class="song-list-container">
+                    <h2>Discover Music</h2>
+                    <div class="songs-grid" id="songsGrid">
+                        <!-- Song Cards will be loaded here dynamically -->
+                        <div class="song-card" style="grid-column: 1 / -1; align-items: center; justify-content: center; padding: 40px;">
+                            <i class="fa-solid fa-spinner fa-spin" style="font-size: 32px; color: var(--accent-color); margin-bottom: 12px;"></i>
+                            <p style="color: var(--text-secondary);">Loading your Google Drive library...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VIEW: Favorites (Liked Songs) -->
+            <div class="view-panel" id="viewFavorites">
+                <div class="view-header">
+                    <div class="view-header-art" style="background: linear-gradient(135deg, #7822f0 0%, #151522 100%);">
+                        <i class="fa-solid fa-heart" style="color: white; filter: drop-shadow(0 4px 12px rgba(255,255,255,0.2));"></i>
+                    </div>
+                    <div class="view-header-info">
+                        <p>PLAYLIST</p>
+                        <h1 id="favoritesTitle">Liked Songs</h1>
+                        <p id="favoritesCount">0 songs</p>
+                    </div>
+                </div>
+                
+                <div class="song-list-container">
+                    <ul class="song-list" id="favoritesList">
+                        <!-- Liked songs will be loaded here -->
+                    </ul>
+                </div>
+            </div>
+
+            <!-- VIEW: Queue Panel -->
+            <div class="view-panel" id="viewQueue">
+                <div class="view-header">
+                    <div class="view-header-art" style="background: linear-gradient(135deg, #1db954 0%, #115c2a 100%);">
+                        <i class="fa-solid fa-list-ul" style="color: white;"></i>
+                    </div>
+                    <div class="view-header-info">
+                        <p>PLAYBACK</p>
+                        <h1>Your Queue</h1>
+                        <p id="queueCount">0 songs in queue</p>
+                    </div>
+                </div>
+                
+                <div class="song-list-container">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <h3 style="font-weight: 700;">Upcoming Tracks</h3>
+                        <button id="clearQueueBtn" class="btn-danger"><i class="fa-solid fa-trash-can"></i> Clear Queue</button>
+                    </div>
+                    <ul class="song-list" id="queueList">
+                        <!-- Upcoming songs will load here -->
+                    </ul>
+                </div>
+            </div>
+
+            <!-- VIEW: Custom Playlist Detail -->
+            <div class="view-panel" id="viewPlaylist">
+                <div class="view-header">
+                    <div class="view-header-art" id="playlistHeaderArt" style="background: linear-gradient(135deg, #ff5e3a 0%, #ff2a68 100%);">
+                        <i class="fa-solid fa-music" style="color: white;"></i>
+                    </div>
+                    <div class="view-header-info">
+                        <p>PLAYLIST</p>
+                        <h1 id="playlistTitle">Playlist Title</h1>
+                        <p id="playlistMeta">Created by You • 0 songs</p>
+                        <div class="playlist-header-actions">
+                            <button id="deletePlaylistBtn" class="btn-danger"><i class="fa-solid fa-trash"></i> Delete Playlist</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="song-list-container">
+                    <ul class="song-list" id="playlistSongsList">
+                        <!-- Songs inside active playlist will load here -->
+                    </ul>
+                </div>
             </div>
         </main>
 
+        <!-- Footer Player Bar -->
         <footer class="player-bar">
+            
+            <!-- Left: Current Song Widget -->
             <div class="now-playing">
+                <div class="now-playing-art" id="nowPlayingArt">
+                    <canvas id="playerArtCanvas"></canvas>
+                </div>
                 <div class="song-info">
                     <h4 id="currentTitle">Select a song</h4>
                     <p id="currentArtist">Unknown Artist</p>
                 </div>
+                <button id="playerLikeBtn" class="row-like-btn" title="Add to Liked Songs"><i class="fa-regular fa-heart"></i></button>
             </div>
 
+            <!-- Center: Player Controls & Progress Bar -->
             <div class="player-controls">
                 <div class="control-buttons">
-                    <button id="prevBtn"><i class="fa-solid fa-backward-step"></i></button>
-                    <button id="playBtn" class="play-pause"><i class="fa-solid fa-play"></i></button>
-                    <button id="nextBtn"><i class="fa-solid fa-forward-step"></i></button>
+                    <button id="shuffleBtn" title="Shuffle Mode"><i class="fa-solid fa-shuffle"></i></button>
+                    <button id="prevBtn" title="Previous"><i class="fa-solid fa-backward-step"></i></button>
+                    <button id="playBtn" class="play-pause" title="Play"><i class="fa-solid fa-play"></i></button>
+                    <button id="nextBtn" title="Next"><i class="fa-solid fa-forward-step"></i></button>
+                    <button id="loopBtn" title="Repeat"><i class="fa-solid fa-repeat"></i></button>
                 </div>
                 <div class="progress-container">
                     <span id="currentTime">0:00</span>
-                    <input type="range" id="progressBar" value="0" min="0" max="100">
+                    <input type="range" id="progressBar" class="slider-bar" value="0" min="0" max="100">
                     <span id="duration">0:00</span>
                 </div>
             </div>
 
+            <!-- Right: Volume & Options Widget -->
             <div class="volume-controls">
-                <i class="fa-solid fa-volume-high"></i>
-                <input type="range" id="volumeBar" min="0" max="1" step="0.1" value="1">
+                <button id="muteBtn" title="Mute/Unmute"><i class="fa-solid fa-volume-high"></i></button>
+                <input type="range" id="volumeBar" class="slider-bar" min="0" max="1" step="0.05" value="1">
             </div>
 
+            <!-- Audio Player Object -->
             <audio id="audioPlayer"></audio>
         </footer>
+    </div>
+
+    <!-- Custom Modal: Add to Playlist selection -->
+    <div class="playlist-modal" id="playlistModal">
+        <div class="modal-content">
+            <h3>Add to Playlist</h3>
+            <p style="font-size: 13px; color: var(--text-secondary);">Select the playlist you wish to add this song to:</p>
+            <ul class="modal-playlists-list" id="modalPlaylistsList">
+                <!-- Playlists for adding will load here -->
+            </ul>
+            <button class="modal-close-btn" id="closeModalBtn">Cancel</button>
+        </div>
     </div>
 
     <script src="app.js"></script>
