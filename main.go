@@ -50,22 +50,8 @@ func main() {
 			return
 		}
 
-		apiKey := os.Getenv("GOOGLE_API_KEY")
-		url := fmt.Sprintf("https://www.googleapis.com/drive/v3/files/%s?alt=media&key=%s", id, apiKey)
-
-		req, err := http.NewRequestWithContext(r.Context(), "GET", url, nil)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to create stream request: %v", err), http.StatusInternalServerError)
-			return
-		}
-
-		// Forward the Range header if requested by the client (browser)
-		if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
-			req.Header.Set("Range", rangeHeader)
-		}
-
-		client := &http.Client{}
-		resp, err := client.Do(req)
+		rangeHeader := r.Header.Get("Range")
+		resp, err := driveService.DownloadFile(id, rangeHeader)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to get file stream: %v", err), http.StatusInternalServerError)
 			return
@@ -93,6 +79,179 @@ func main() {
 		if err != nil {
 			log.Printf("Error streaming file range: %v", err)
 		}
+	})
+
+	// Admin Credentials and Session Constants
+	const AdminEmail = "Jayaj1843@gmail.com"
+	const AdminPassword = "HariHaranG@123"
+	const SessionCookieName = "vibe_admin_token"
+	const SessionCookieValue = "authenticated_vibe_admin_session_token_2026"
+
+	isAdminAuthenticated := func(r *http.Request) bool {
+		cookie, err := r.Cookie(SessionCookieName)
+		return err == nil && cookie.Value == SessionCookieValue
+	}
+
+	// Admin Auth Routes
+	http.HandleFunc("/api/admin/login", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		}
+
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if req.Email != AdminEmail || req.Password != AdminPassword {
+			http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+			return
+		}
+
+		http.SetCookie(w, &http.Cookie{
+			Name:     SessionCookieName,
+			Value:    SessionCookieValue,
+			Path:     "/",
+			HttpOnly: true,
+			MaxAge:   86400, // 24 hours
+		})
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+	})
+
+	http.HandleFunc("/api/admin/logout", func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{
+			Name:     SessionCookieName,
+			Value:    "",
+			Path:     "/",
+			HttpOnly: true,
+			MaxAge:   -1,
+		})
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+	})
+
+	http.HandleFunc("/api/admin/status", func(w http.ResponseWriter, r *http.Request) {
+		authenticated := isAdminAuthenticated(r)
+		writable := driveService.writable
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"authenticated": authenticated,
+			"writable":      writable,
+		})
+	})
+
+	// Admin Upload Route
+	http.HandleFunc("/api/admin/upload", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if !isAdminAuthenticated(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		if !driveService.writable {
+			http.Error(w, "Drive service is read-only (missing service_account.json)", http.StatusForbidden)
+			return
+		}
+
+		// Parse multipart form
+		err := r.ParseMultipartForm(100 << 20) // 100MB limit
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to parse form: %v", err), http.StatusBadRequest)
+			return
+		}
+
+		artist := r.FormValue("artist")
+
+		targetFolderID := folderID
+		if artist != "" && artist != "Unknown Artist" {
+			subfolderID, err := driveService.GetOrCreateSubfolder(folderID, artist)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Failed to create/find artist folder: %v", err), http.StatusInternalServerError)
+				return
+			}
+			targetFolderID = subfolderID
+		}
+
+		formFiles := r.MultipartForm.File["songs"]
+		if len(formFiles) == 0 {
+			http.Error(w, "No files uploaded", http.StatusBadRequest)
+			return
+		}
+
+		var uploadedSongs []Song
+		for _, fileHeader := range formFiles {
+			file, err := fileHeader.Open()
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Failed to open file %s: %v", fileHeader.Filename, err), http.StatusInternalServerError)
+				return
+			}
+			defer file.Close()
+
+			song, err := driveService.UploadSong(targetFolderID, fileHeader.Filename, file)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Failed to upload file %s: %v", fileHeader.Filename, err), http.StatusInternalServerError)
+				return
+			}
+			song.Artist = artist
+			uploadedSongs = append(uploadedSongs, song)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status": "success",
+			"songs":  uploadedSongs,
+		})
+	})
+
+	// Admin Delete Route
+	http.HandleFunc("/api/admin/delete", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if !isAdminAuthenticated(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		if !driveService.writable {
+			http.Error(w, "Drive service is read-only (missing service_account.json)", http.StatusForbidden)
+			return
+		}
+
+		var req struct {
+			ID string `json:"id"`
+		}
+
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil || req.ID == "" {
+			http.Error(w, "Invalid request body or missing ID", http.StatusBadRequest)
+			return
+		}
+
+		err = driveService.DeleteSong(req.ID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to delete song: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 	})
 
 	// Serve Static Files from Embed

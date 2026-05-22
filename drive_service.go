@@ -13,23 +13,41 @@ import (
 
 // DriveService handles interactions with Google Drive
 type DriveService struct {
-	srv *drive.Service
+	srv      *drive.Service
+	writable bool
 }
 
-// NewDriveService creates a new DriveService using the API key from environment
+// NewDriveService creates a new DriveService.
+// It will try to load service_account.json from the root directory for write access (upload/delete).
+// If missing, it falls back to the GOOGLE_API_KEY environment variable in read-only mode.
 func NewDriveService() (*DriveService, error) {
-	apiKey := os.Getenv("GOOGLE_API_KEY")
-	if apiKey == "" {
-		return nil, fmt.Errorf("GOOGLE_API_KEY environment variable is not set")
+	var srv *drive.Service
+	var err error
+	writable := false
+	ctx := context.Background()
+
+	// Check if service_account.json exists in root
+	if _, statErr := os.Stat("service_account.json"); statErr == nil {
+		fmt.Println("Initializing Drive Service with Service Account...")
+		srv, err = drive.NewService(ctx, option.WithCredentialsFile("service_account.json"), option.WithScopes(drive.DriveScope))
+		if err == nil {
+			writable = true
+		}
+	} else {
+		// Fallback to API Key
+		apiKey := os.Getenv("GOOGLE_API_KEY")
+		if apiKey == "" {
+			return nil, fmt.Errorf("neither service_account.json nor GOOGLE_API_KEY environment variable is set")
+		}
+		fmt.Println("Initializing Drive Service with API Key (Read-Only)...")
+		srv, err = drive.NewService(ctx, option.WithAPIKey(apiKey))
 	}
 
-	ctx := context.Background()
-	srv, err := drive.NewService(ctx, option.WithAPIKey(apiKey))
 	if err != nil {
 		return nil, fmt.Errorf("unable to retrieve Drive client: %v", err)
 	}
 
-	return &DriveService{srv: srv}, nil
+	return &DriveService{srv: srv, writable: writable}, nil
 }
 
 // Song represents a music file in Drive
@@ -77,17 +95,69 @@ func (d *DriveService) ListSongs(folderID string, artistName string) ([]Song, er
 	return songs, nil
 }
 
-// GetFileStream retrieves the file content from Drive
-func (d *DriveService) GetFileStream(fileID string) (*http.Response, error) {
-	// For downloading/streaming, we use the Files.Get method with Alt("media")
-	resp, err := d.srv.Files.Get(fileID).Download()
+// GetOrCreateSubfolder searches for a subfolder by name under parentID.
+// If it doesn't exist, it creates a new one.
+func (d *DriveService) GetOrCreateSubfolder(parentID string, folderName string) (string, error) {
+	query := fmt.Sprintf("'%s' in parents and name = '%s' and mimeType = 'application/vnd.google-apps.folder' and trashed = false", parentID, folderName)
+	list, err := d.srv.Files.List().Q(query).Fields("files(id)").Do()
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return resp, nil
+	if len(list.Files) > 0 {
+		return list.Files[0].Id, nil
+	}
+
+	// Create a new folder
+	f := &drive.File{
+		Name:     folderName,
+		MimeType: "application/vnd.google-apps.folder",
+		Parents:  []string{parentID},
+	}
+	res, err := d.srv.Files.Create(f).Fields("id").Do()
+	if err != nil {
+		return "", err
+	}
+	return res.Id, nil
 }
 
-// StreamFile copies the file content to the writer
+// UploadSong uploads a song file directly into the specified parent folder
+func (d *DriveService) UploadSong(parentID string, filename string, fileReader io.Reader) (Song, error) {
+	f := &drive.File{
+		Name:     filename,
+		MimeType: "audio/mpeg",
+		Parents:  []string{parentID},
+	}
+	res, err := d.srv.Files.Create(f).Media(fileReader).Fields("id, name, mimeType").Do()
+	if err != nil {
+		return Song{}, err
+	}
+	return Song{
+		ID:   res.Id,
+		Name: res.Name,
+		Mime: res.MimeType,
+	}, nil
+}
+
+// DeleteSong deletes a file from Google Drive by its file ID
+func (d *DriveService) DeleteSong(fileID string) error {
+	return d.srv.Files.Delete(fileID).Do()
+}
+
+// DownloadFile retrieves file content and supports Range headers for streaming seeking
+func (d *DriveService) DownloadFile(fileID string, rangeHeader string) (*http.Response, error) {
+	call := d.srv.Files.Get(fileID)
+	if rangeHeader != "" {
+		call.Header().Set("Range", rangeHeader)
+	}
+	return call.Download()
+}
+
+// GetFileStream retrieves the file content from Drive (non-seeking fallback)
+func (d *DriveService) GetFileStream(fileID string) (*http.Response, error) {
+	return d.srv.Files.Get(fileID).Download()
+}
+
+// StreamFile copies the file content directly to the writer (legacy fallback)
 func (d *DriveService) StreamFile(w io.Writer, fileID string) error {
 	resp, err := d.srv.Files.Get(fileID).Download()
 	if err != nil {

@@ -27,6 +27,7 @@
                     <li class="active" id="navHome"><i class="fa-solid fa-house"></i> Home</li>
                     <li id="navFavorites"><i class="fa-solid fa-heart"></i> Liked Songs</li>
                     <li id="navQueue"><i class="fa-solid fa-list-ul"></i> Playback Queue</li>
+                    <li id="navAdmin"><i class="fa-solid fa-user-gear"></i> Admin Panel</li>
                 </ul>
             </nav>
 
@@ -131,6 +132,102 @@
                     <ul class="song-list" id="playlistSongsList">
                         <!-- Songs inside active playlist will load here -->
                     </ul>
+                </div>
+            </div>
+
+            <!-- VIEW: Admin Panel -->
+            <div class="view-panel" id="viewAdmin">
+                <!-- If not logged in, show beautiful centered login card -->
+                <div class="admin-login-container" id="adminLoginCard">
+                    <div class="login-card">
+                        <i class="fa-solid fa-circle-user login-icon"></i>
+                        <h2>Admin Portal</h2>
+                        <p class="login-desc">Sign in to upload, organize, and manage your audio library directly on Google Drive.</p>
+                        
+                        <div id="loginErrorMsg" class="error-banner" style="display: none;"></div>
+                        
+                        <form id="adminLoginForm">
+                            <div class="form-group">
+                                <label for="adminEmail">Email Address</label>
+                                <input type="email" id="adminEmail" required placeholder="name@example.com">
+                            </div>
+                            <div class="form-group">
+                                <label for="adminPassword">Password</label>
+                                <input type="password" id="adminPassword" required placeholder="••••••••">
+                            </div>
+                            <button type="submit" class="btn-primary login-btn">Login <i class="fa-solid fa-right-to-bracket"></i></button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- If logged in, show the administration panel dashboard -->
+                <div class="admin-dashboard-container" id="adminDashboard" style="display: none;">
+                    <div class="dashboard-header">
+                        <div>
+                            <h2>Library Administration</h2>
+                            <p class="dashboard-subtext">Manage files and folders in Google Drive. Write status: <span id="driveWriteStatus" class="badge-status">Checking...</span></p>
+                        </div>
+                        <button id="adminLogoutBtn" class="btn-secondary"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
+                    </div>
+
+                    <!-- Layout split: Left side for upload & folder organization, Right side for listing/deleting tracks -->
+                    <div class="admin-grid">
+                        
+                        <!-- Col 1: Song Organization & Upload -->
+                        <div class="admin-card">
+                            <h3 class="card-title"><i class="fa-solid fa-cloud-arrow-up"></i> Upload and Organize</h3>
+                            <p class="card-desc">Organize songs under an Artist. Songs are placed in Google Drive folders dynamically (created if they don't exist).</p>
+                            
+                            <div class="form-group">
+                                <label for="uploadArtistSelect">Select Artist Folder</label>
+                                <div class="artist-select-row">
+                                    <select id="uploadArtistSelect">
+                                        <option value="Unknown Artist">-- Unknown Artist (Root Folder) --</option>
+                                        <!-- Dynamically filled with existing folder names -->
+                                    </select>
+                                    <button id="refreshArtistsBtn" class="btn-mini-icon" title="Refresh Artists List"><i class="fa-solid fa-arrows-rotate"></i></button>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="newArtistInput">Or Create New Artist</label>
+                                <input type="text" id="newArtistInput" placeholder="e.g. Michael Jackson">
+                            </div>
+
+                            <div class="upload-dropzone" id="uploadDropzone">
+                                <i class="fa-solid fa-music upload-zone-icon"></i>
+                                <p class="upload-zone-text">Drag and drop `.mp3` songs or folders here</p>
+                                <span class="upload-zone-sub">or click to select files</span>
+                                <input type="file" id="fileInput" multiple accept="audio/mpeg" style="display: none;">
+                            </div>
+
+                            <!-- Upload Progress Queue -->
+                            <div class="upload-progress-container" id="uploadProgressList" style="display: none;">
+                                <h4>Uploading Queue</h4>
+                                <div class="progress-list-scroll" id="progressListScroll">
+                                    <!-- Dynamic upload queue bars here -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Col 2: Song Management & Deletion -->
+                        <div class="admin-card">
+                            <h3 class="card-title"><i class="fa-solid fa-folder-open"></i> File Management</h3>
+                            <p class="card-desc">All songs in your collection. Click the trash icon to delete songs permanently from Google Drive.</p>
+                            
+                            <div class="song-filter-bar">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text" id="adminSongSearch" placeholder="Filter songs for deletion...">
+                            </div>
+
+                            <div class="admin-songs-list-container">
+                                <ul class="admin-songs-list" id="adminSongsList">
+                                    <!-- Songs loaded dynamically with Delete buttons -->
+                                </ul>
+                            </div>
+                        </div>
+
+                    </div>
                 </div>
             </div>
         </main>

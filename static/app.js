@@ -16,6 +16,7 @@ const searchInput = document.getElementById('searchInput');
 const navHome = document.getElementById('navHome');
 const navFavorites = document.getElementById('navFavorites');
 const navQueue = document.getElementById('navQueue');
+const navAdmin = document.getElementById('navAdmin');
 const playlistsListEl = document.getElementById('playlistsList');
 const addPlaylistBtn = document.getElementById('addPlaylistBtn');
 
@@ -24,6 +25,7 @@ const viewHome = document.getElementById('viewHome');
 const viewFavorites = document.getElementById('viewFavorites');
 const viewQueue = document.getElementById('viewQueue');
 const viewPlaylist = document.getElementById('viewPlaylist');
+const viewAdmin = document.getElementById('viewAdmin');
 
 // View Sub-elements
 const songsGrid = document.getElementById('songsGrid');
@@ -66,6 +68,9 @@ let shuffleState = false;
 let originalQueueOrder = [];  // Used to restore order when turning shuffle off
 let preMuteVolume = 1.0;
 let songPendingPlaylistAdd = null; // Stored song ID when modal is active
+
+let isAdminAuthenticated = false;
+let isDriveWritable = false;
 
 // Local Storage Databases
 function getFavorites() {
@@ -191,6 +196,7 @@ function setView(view, playlistId = null) {
     navHome.classList.remove('active');
     navFavorites.classList.remove('active');
     navQueue.classList.remove('active');
+    navAdmin.classList.remove('active');
     document.querySelectorAll('.playlist-sidebar-item').forEach(el => el.classList.remove('active'));
 
     // Hide all view panels
@@ -198,6 +204,7 @@ function setView(view, playlistId = null) {
     viewFavorites.classList.remove('active');
     viewQueue.classList.remove('active');
     viewPlaylist.classList.remove('active');
+    viewAdmin.classList.remove('active');
 
     if (view === 'home') {
         navHome.classList.add('active');
@@ -218,6 +225,10 @@ function setView(view, playlistId = null) {
             setView('home');
             return;
         }
+    } else if (view === 'admin') {
+        navAdmin.classList.add('active');
+        viewAdmin.classList.add('active');
+        checkAdminStatus();
     }
     filterAndRender();
 }
@@ -807,6 +818,7 @@ searchInput.addEventListener('input', () => {
 navHome.addEventListener('click', () => setView('home'));
 navFavorites.addEventListener('click', () => setView('favorites'));
 navQueue.addEventListener('click', () => setView('queue'));
+navAdmin.addEventListener('click', () => setView('admin'));
 document.getElementById('logoClick').addEventListener('click', () => setView('home'));
 
 clearQueueBtn.addEventListener('click', () => {
@@ -818,8 +830,352 @@ clearQueueBtn.addEventListener('click', () => {
     }
 });
 
+// ==========================================================================
+// ADMIN PORTAL STATE & ACTION HANDLERS
+// ==========================================================================
+
+async function checkAdminStatus() {
+    try {
+        const res = await fetch('/api/admin/status');
+        if (res.ok) {
+            const data = await res.json();
+            isAdminAuthenticated = data.authenticated;
+            isDriveWritable = data.writable;
+            updateAdminUI();
+        }
+    } catch (err) {
+        console.error('Failed to check admin status:', err);
+    }
+}
+
+function updateAdminUI() {
+    const adminLoginCard = document.getElementById('adminLoginCard');
+    const adminDashboard = document.getElementById('adminDashboard');
+    const driveWriteStatus = document.getElementById('driveWriteStatus');
+
+    if (isAdminAuthenticated) {
+        adminLoginCard.style.display = 'none';
+        adminDashboard.style.display = 'block';
+        
+        if (isDriveWritable) {
+            driveWriteStatus.textContent = 'Active (Service Account)';
+            driveWriteStatus.className = 'badge-status';
+        } else {
+            driveWriteStatus.textContent = 'Read-Only (API Key)';
+            driveWriteStatus.className = 'badge-status read-only';
+        }
+        
+        populateArtistFolders();
+        renderAdminSongsList();
+    } else {
+        adminLoginCard.style.display = 'flex';
+        adminDashboard.style.display = 'none';
+    }
+}
+
+function populateArtistFolders() {
+    const select = document.getElementById('uploadArtistSelect');
+    const currentValue = select.value;
+    select.innerHTML = '<option value="Unknown Artist">-- Unknown Artist (Root Folder) --</option>';
+    
+    const artists = new Set();
+    allSongs.forEach(s => {
+        if (s.artist && s.artist !== 'Unknown Artist') {
+            artists.add(s.artist);
+        }
+    });
+
+    Array.from(artists).sort().forEach(artist => {
+        const opt = document.createElement('option');
+        opt.value = artist;
+        opt.textContent = artist;
+        select.appendChild(opt);
+    });
+
+    select.value = currentValue || 'Unknown Artist';
+}
+
+function renderAdminSongsList() {
+    const list = document.getElementById('adminSongsList');
+    const filterTerm = document.getElementById('adminSongSearch').value.trim().toLowerCase();
+    list.innerHTML = '';
+
+    let filtered = allSongs;
+    if (filterTerm) {
+        filtered = allSongs.filter(s => 
+            s.name.toLowerCase().includes(filterTerm) || 
+            (s.artist && s.artist.toLowerCase().includes(filterTerm))
+        );
+    }
+
+    if (filtered.length === 0) {
+        list.innerHTML = '<li style="padding:16px; text-align:center; color:var(--text-secondary); font-size:13px;">No matching songs in library.</li>';
+        return;
+    }
+
+    filtered.forEach(song => {
+        const item = document.createElement('li');
+        item.className = 'admin-song-item';
+        item.innerHTML = `
+            <div class="admin-song-meta">
+                <div class="admin-song-title">${song.name}</div>
+                <div class="admin-song-artist">${song.artist || 'Unknown Artist'}</div>
+            </div>
+            <button class="btn-delete-song" title="Delete Song From Google Drive" data-id="${song.id}">
+                <i class="fa-solid fa-trash-can"></i>
+            </button>
+        `;
+
+        item.querySelector('.btn-delete-song').addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteSong(song.id, song.name);
+        });
+
+        list.appendChild(item);
+    });
+}
+
+async function deleteSong(id, name) {
+    if (!isDriveWritable) {
+        alert('Cannot delete: Google Drive service is in Read-Only mode. Please place service_account.json in the project root.');
+        return;
+    }
+
+    if (!confirm(`Are you sure you want to permanently delete "${name}" from Google Drive? This cannot be undone!`)) {
+        return;
+    }
+
+    try {
+        const btn = document.querySelector(`.btn-delete-song[data-id="${id}"]`);
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+        }
+
+        const res = await fetch('/api/admin/delete', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ id })
+        });
+
+        if (!res.ok) {
+            const errMsg = await res.text();
+            throw new Error(errMsg || 'Failed to delete song');
+        }
+
+        // Successfully deleted. Reload songs!
+        await fetchSongs();
+        renderAdminSongsList();
+        populateArtistFolders();
+    } catch (err) {
+        console.error('Failed to delete song:', err);
+        alert(`Error deleting song: ${err.message}`);
+        const btn = document.querySelector(`.btn-delete-song[data-id="${id}"]`);
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-trash-can"></i>';
+        }
+    }
+}
+
+async function uploadFiles(files) {
+    if (files.length === 0) return;
+
+    if (!isDriveWritable) {
+        alert('Cannot upload: Google Drive service is in Read-Only mode. Please place service_account.json in the project root.');
+        return;
+    }
+
+    let artist = document.getElementById('uploadArtistSelect').value;
+    const newArtist = document.getElementById('newArtistInput').value.trim();
+    if (newArtist) {
+        artist = newArtist;
+    }
+
+    const progressContainer = document.getElementById('uploadProgressList');
+    const progressListScroll = document.getElementById('progressListScroll');
+    progressContainer.style.display = 'block';
+
+    const fileListArray = Array.from(files);
+
+    for (let i = 0; i < fileListArray.length; i++) {
+        const file = fileListArray[i];
+        
+        // Match both mime and extension for robustness
+        if (file.type !== 'audio/mpeg' && !file.name.toLowerCase().endsWith('.mp3')) {
+            console.warn(`Skipping non-MP3 file: ${file.name}`);
+            continue;
+        }
+
+        const progressId = 'upload_' + Date.now() + '_' + i;
+        const progressItem = document.createElement('div');
+        progressItem.className = 'upload-progress-item';
+        progressItem.id = progressId;
+        progressItem.innerHTML = `
+            <div class="upload-progress-info">
+                <span class="upload-file-name" title="${file.name}">${file.name}</span>
+                <span class="upload-file-percent" id="${progressId}_percent">0%</span>
+            </div>
+            <div class="upload-progress-bar-container">
+                <div class="upload-progress-bar" id="${progressId}_bar"></div>
+            </div>
+        `;
+        progressListScroll.appendChild(progressItem);
+        progressListScroll.scrollTop = progressListScroll.scrollHeight;
+
+        try {
+            await uploadSingleFile(file, artist, progressId);
+        } catch (err) {
+            console.error(`Failed to upload ${file.name}:`, err);
+            const percentEl = document.getElementById(`${progressId}_percent`);
+            if (percentEl) {
+                percentEl.textContent = 'Failed';
+                percentEl.style.color = '#eb5757';
+            }
+        }
+    }
+
+    document.getElementById('newArtistInput').value = '';
+    await fetchSongs();
+    populateArtistFolders();
+    renderAdminSongsList();
+}
+
+function uploadSingleFile(file, artist, progressId) {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/admin/upload');
+
+        const formData = new FormData();
+        formData.append('songs', file);
+        formData.append('artist', artist);
+
+        xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+                const percent = Math.round((e.loaded / e.total) * 100);
+                const percentEl = document.getElementById(`${progressId}_percent`);
+                const barEl = document.getElementById(`${progressId}_bar`);
+                if (percentEl) percentEl.textContent = `${percent}%`;
+                if (barEl) {
+                    barEl.style.width = `${percent}%`;
+                }
+            }
+        };
+
+        xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                const percentEl = document.getElementById(`${progressId}_percent`);
+                const barEl = document.getElementById(`${progressId}_bar`);
+                if (percentEl) {
+                    percentEl.textContent = 'Completed';
+                    percentEl.style.color = 'var(--accent-color)';
+                }
+                if (barEl) barEl.style.width = '100%';
+                resolve(JSON.parse(xhr.responseText));
+            } else {
+                reject(new Error(xhr.responseText || `Upload failed with status ${xhr.status}`));
+            }
+        };
+
+        xhr.onerror = () => {
+            reject(new Error('Network error during upload'));
+        };
+
+        xhr.send(formData);
+    });
+}
+
+// ----------------------------------------------------
+// DOM EVENT LISTENERS FOR ADMIN PORTAL
+// ----------------------------------------------------
+
+const adminLoginForm = document.getElementById('adminLoginForm');
+adminLoginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('adminEmail').value.trim();
+    const password = document.getElementById('adminPassword').value;
+    const errorEl = document.getElementById('loginErrorMsg');
+    
+    errorEl.style.display = 'none';
+
+    try {
+        const res = await fetch('/api/admin/login', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ email, password })
+        });
+
+        if (!res.ok) {
+            throw new Error('Invalid administrative credentials');
+        }
+
+        isAdminAuthenticated = true;
+        document.getElementById('adminEmail').value = '';
+        document.getElementById('adminPassword').value = '';
+        checkAdminStatus();
+    } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.style.display = 'block';
+    }
+});
+
+const adminLogoutBtn = document.getElementById('adminLogoutBtn');
+adminLogoutBtn.addEventListener('click', async () => {
+    try {
+        await fetch('/api/admin/logout');
+        isAdminAuthenticated = false;
+        setView('home');
+    } catch (err) {
+        console.error('Logout failed:', err);
+    }
+});
+
+const refreshArtistsBtn = document.getElementById('refreshArtistsBtn');
+refreshArtistsBtn.addEventListener('click', () => {
+    populateArtistFolders();
+});
+
+const adminSongSearch = document.getElementById('adminSongSearch');
+adminSongSearch.addEventListener('input', () => {
+    renderAdminSongsList();
+});
+
+const uploadDropzone = document.getElementById('uploadDropzone');
+const fileInput = document.getElementById('fileInput');
+
+uploadDropzone.addEventListener('click', () => {
+    fileInput.click();
+});
+
+fileInput.addEventListener('change', (e) => {
+    uploadFiles(e.target.files);
+});
+
+uploadDropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    uploadDropzone.classList.add('dragover');
+});
+
+uploadDropzone.addEventListener('dragleave', () => {
+    uploadDropzone.classList.remove('dragover');
+});
+
+uploadDropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadDropzone.classList.remove('dragover');
+    if (e.dataTransfer.files) {
+        uploadFiles(e.dataTransfer.files);
+    }
+});
+
 // Initialize App
 fetchSongs();
+checkAdminStatus(); // Check persistent administrative session on load
+
 volumeBar.style.background = `linear-gradient(to right, var(--accent-color) ${volumeBar.value * 100}%, rgba(255,255,255,0.1) ${volumeBar.value * 100}%)`;
 volumeBar.addEventListener('input', () => {
     volumeBar.style.background = `linear-gradient(to right, var(--accent-color) ${volumeBar.value * 100}%, rgba(255,255,255,0.1) ${volumeBar.value * 100}%)`;
