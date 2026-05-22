@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/option"
@@ -18,7 +19,7 @@ type DriveService struct {
 }
 
 // NewDriveService creates a new DriveService.
-// It will try to load service_account.json from the root directory for write access (upload/delete).
+// It will try to load service_account.json from multiple paths for write access (upload/delete).
 // If missing, it falls back to the GOOGLE_API_KEY environment variable in read-only mode.
 func NewDriveService() (*DriveService, error) {
 	var srv *drive.Service
@@ -26,18 +27,47 @@ func NewDriveService() (*DriveService, error) {
 	writable := false
 	ctx := context.Background()
 
-	// Check if service_account.json exists in root
-	if _, statErr := os.Stat("service_account.json"); statErr == nil {
-		fmt.Println("Initializing Drive Service with Service Account...")
-		srv, err = drive.NewService(ctx, option.WithCredentialsFile("service_account.json"), option.WithScopes(drive.DriveScope))
+	// Locate the service account file in a highly robust way to account for Render working directory variations
+	credsPath := ""
+	if pathEnv := os.Getenv("SERVICE_ACCOUNT_PATH"); pathEnv != "" {
+		if _, statErr := os.Stat(pathEnv); statErr == nil {
+			credsPath = pathEnv
+		}
+	}
+	if credsPath == "" {
+		if _, statErr := os.Stat("service_account.json"); statErr == nil {
+			credsPath = "service_account.json"
+		}
+	}
+	if credsPath == "" {
+		if exePath, exeErr := os.Executable(); exeErr == nil {
+			exeCredsPath := filepath.Join(filepath.Dir(exePath), "service_account.json")
+			if _, statErr := os.Stat(exeCredsPath); statErr == nil {
+				credsPath = exeCredsPath
+			}
+		}
+	}
+	if credsPath == "" {
+		if _, statErr := os.Stat("../service_account.json"); statErr == nil {
+			credsPath = "../service_account.json"
+		}
+	}
+
+	if credsPath != "" {
+		fmt.Printf("Initializing Drive Service with Service Account from: %s\n", credsPath)
+		srv, err = drive.NewService(ctx, option.WithCredentialsFile(credsPath), option.WithScopes(drive.DriveScope))
 		if err == nil {
 			writable = true
+		} else {
+			fmt.Printf("Failed to load credentials file %s: %v. Falling back to API Key...\n", credsPath, err)
 		}
-	} else {
+	}
+
+	if !writable {
 		// Fallback to API Key
 		apiKey := os.Getenv("GOOGLE_API_KEY")
 		if apiKey == "" {
-			return nil, fmt.Errorf("neither service_account.json nor GOOGLE_API_KEY environment variable is set")
+			return nil, fmt.Errorf("neither a valid service_account.json credentials file nor the GOOGLE_API_KEY environment variable is configured")
 		}
 		fmt.Println("Initializing Drive Service with API Key (Read-Only)...")
 		srv, err = drive.NewService(ctx, option.WithAPIKey(apiKey))
