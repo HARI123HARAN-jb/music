@@ -5,3 +5,4 @@ app.exe
 service_account.json
 service_account.json.json
 *.env
+token.json
