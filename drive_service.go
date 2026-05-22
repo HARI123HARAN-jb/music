@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/option"
 )
@@ -19,67 +22,100 @@ type DriveService struct {
 }
 
 // NewDriveService creates a new DriveService.
-// It will try to load service_account.json from multiple paths for write access (upload/delete).
-// If missing, it falls back to the GOOGLE_API_KEY environment variable in read-only mode.
+// It will try to load OAuth 2.0 credentials from token.json first.
+// If missing, it falls back to service_account.json.
+// If both are missing, it falls back to the GOOGLE_API_KEY environment variable in read-only mode.
 func NewDriveService() (*DriveService, error) {
 	var srv *drive.Service
 	var err error
 	writable := false
 	ctx := context.Background()
 
-	// Locate the service account file in a highly robust way to account for Render working directory variations and double extensions
-	credsPath := ""
-	checkFiles := []string{"service_account.json", "service_account.json.json"}
-
-	if pathEnv := os.Getenv("SERVICE_ACCOUNT_PATH"); pathEnv != "" {
-		if _, statErr := os.Stat(pathEnv); statErr == nil {
-			credsPath = pathEnv
-		}
-	}
-	if credsPath == "" {
-		for _, f := range checkFiles {
-			if _, statErr := os.Stat(f); statErr == nil {
-				credsPath = f
-				break
+	// 1. Try OAuth 2.0 Client credentials first
+	if _, statErr := os.Stat("token.json"); statErr == nil {
+		clientID := os.Getenv("GOOGLE_CLIENT_ID")
+		clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
+		if clientID != "" && clientSecret != "" {
+			fmt.Println("Initializing Drive Service with OAuth 2.0 User Credentials (token.json)...")
+			config := &oauth2.Config{
+				ClientID:     clientID,
+				ClientSecret: clientSecret,
+				Scopes:       []string{drive.DriveScope},
+				Endpoint:     google.Endpoint,
 			}
-		}
-	}
-	if credsPath == "" {
-		if exePath, exeErr := os.Executable(); exeErr == nil {
-			for _, f := range checkFiles {
-				exeCredsPath := filepath.Join(filepath.Dir(exePath), f)
-				if _, statErr := os.Stat(exeCredsPath); statErr == nil {
-					credsPath = exeCredsPath
-					break
+			f, fileErr := os.Open("token.json")
+			if fileErr == nil {
+				defer f.Close()
+				tok := &oauth2.Token{}
+				jsonErr := json.NewDecoder(f).Decode(tok)
+				if jsonErr == nil {
+					client := config.Client(ctx, tok)
+					srv, err = drive.NewService(ctx, option.WithHTTPClient(client))
+					if err == nil {
+						writable = true
+					} else {
+						fmt.Printf("Failed to create Drive client with OAuth2 token: %v\n", err)
+					}
 				}
 			}
 		}
 	}
-	if credsPath == "" {
-		for _, f := range checkFiles {
-			parentCredsPath := filepath.Join("..", f)
-			if _, statErr := os.Stat(parentCredsPath); statErr == nil {
-				credsPath = parentCredsPath
-				break
+
+	// 2. Fallback to Service Account
+	if !writable {
+		credsPath := ""
+		checkFiles := []string{"service_account.json", "service_account.json.json"}
+
+		if pathEnv := os.Getenv("SERVICE_ACCOUNT_PATH"); pathEnv != "" {
+			if _, statErr := os.Stat(pathEnv); statErr == nil {
+				credsPath = pathEnv
+			}
+		}
+		if credsPath == "" {
+			for _, f := range checkFiles {
+				if _, statErr := os.Stat(f); statErr == nil {
+					credsPath = f
+					break
+				}
+			}
+		}
+		if credsPath == "" {
+			if exePath, exeErr := os.Executable(); exeErr == nil {
+				for _, f := range checkFiles {
+					exeCredsPath := filepath.Join(filepath.Dir(exePath), f)
+					if _, statErr := os.Stat(exeCredsPath); statErr == nil {
+						credsPath = exeCredsPath
+						break
+					}
+				}
+			}
+		}
+		if credsPath == "" {
+			for _, f := range checkFiles {
+				parentCredsPath := filepath.Join("..", f)
+				if _, statErr := os.Stat(parentCredsPath); statErr == nil {
+					credsPath = parentCredsPath
+					break
+				}
+			}
+		}
+
+		if credsPath != "" {
+			fmt.Printf("Initializing Drive Service with Service Account from: %s\n", credsPath)
+			srv, err = drive.NewService(ctx, option.WithCredentialsFile(credsPath), option.WithScopes(drive.DriveScope))
+			if err == nil {
+				writable = true
+			} else {
+				fmt.Printf("Failed to load credentials file %s: %v. Falling back to API Key...\n", credsPath, err)
 			}
 		}
 	}
 
-	if credsPath != "" {
-		fmt.Printf("Initializing Drive Service with Service Account from: %s\n", credsPath)
-		srv, err = drive.NewService(ctx, option.WithCredentialsFile(credsPath), option.WithScopes(drive.DriveScope))
-		if err == nil {
-			writable = true
-		} else {
-			fmt.Printf("Failed to load credentials file %s: %v. Falling back to API Key...\n", credsPath, err)
-		}
-	}
-
+	// 3. Fallback to API Key
 	if !writable {
-		// Fallback to API Key
 		apiKey := os.Getenv("GOOGLE_API_KEY")
 		if apiKey == "" {
-			return nil, fmt.Errorf("neither a valid service_account.json credentials file nor the GOOGLE_API_KEY environment variable is configured")
+			return nil, fmt.Errorf("neither a valid token.json, service_account.json, nor GOOGLE_API_KEY environment variable is configured")
 		}
 		fmt.Println("Initializing Drive Service with API Key (Read-Only)...")
 		srv, err = drive.NewService(ctx, option.WithAPIKey(apiKey))

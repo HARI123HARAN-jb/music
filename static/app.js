@@ -71,6 +71,7 @@ let songPendingPlaylistAdd = null; // Stored song ID when modal is active
 
 let isAdminAuthenticated = false;
 let isDriveWritable = false;
+let isOauthConfigured = false;
 
 // Local Storage Databases
 function getFavorites() {
@@ -841,6 +842,7 @@ async function checkAdminStatus() {
             const data = await res.json();
             isAdminAuthenticated = data.authenticated;
             isDriveWritable = data.writable;
+            isOauthConfigured = data.oauthConfigured;
             updateAdminUI();
         }
     } catch (err) {
@@ -852,17 +854,26 @@ function updateAdminUI() {
     const adminLoginCard = document.getElementById('adminLoginCard');
     const adminDashboard = document.getElementById('adminDashboard');
     const driveWriteStatus = document.getElementById('driveWriteStatus');
+    const oauthPromptBanner = document.getElementById('oauthPromptBanner');
 
     if (isAdminAuthenticated) {
         adminLoginCard.style.display = 'none';
         adminDashboard.style.display = 'block';
         
         if (isDriveWritable) {
-            driveWriteStatus.textContent = 'Active (Service Account)';
+            driveWriteStatus.textContent = 'Active (Write-Enabled)';
             driveWriteStatus.className = 'badge-status';
+            if (oauthPromptBanner) oauthPromptBanner.style.display = 'none';
         } else {
             driveWriteStatus.textContent = 'Read-Only (API Key)';
             driveWriteStatus.className = 'badge-status read-only';
+            if (oauthPromptBanner) {
+                if (isOauthConfigured) {
+                    oauthPromptBanner.style.display = 'block';
+                } else {
+                    oauthPromptBanner.style.display = 'none';
+                }
+            }
         }
         
         populateArtistFolders();
@@ -937,7 +948,7 @@ function renderAdminSongsList() {
 
 async function deleteSong(id, name) {
     if (!isDriveWritable) {
-        alert('Cannot delete: Google Drive service is in Read-Only mode. Please place service_account.json in the project root.');
+        alert('Cannot delete: Google Drive service is in Read-Only mode. Please connect your Google Account in the Library Administration header to authorize writing.');
         return;
     }
 
@@ -984,7 +995,7 @@ async function uploadFiles(files) {
     if (files.length === 0) return;
 
     if (!isDriveWritable) {
-        alert('Cannot upload: Google Drive service is in Read-Only mode. Please place service_account.json in the project root.');
+        alert('Cannot upload: Google Drive service is in Read-Only mode. Please connect your Google Account in the Library Administration header to authorize writing.');
         return;
     }
 
@@ -1175,6 +1186,12 @@ uploadDropzone.addEventListener('drop', (e) => {
 // Initialize App
 fetchSongs();
 checkAdminStatus(); // Check persistent administrative session on load
+
+// Check for successful OAuth authorization callback hash
+if (window.location.hash === '#admin-authorized') {
+    alert('Google Drive Account connected successfully! Write access is now fully active.');
+    window.history.replaceState(null, null, ' ');
+}
 
 volumeBar.style.background = `linear-gradient(to right, var(--accent-color) ${volumeBar.value * 100}%, rgba(255,255,255,0.1) ${volumeBar.value * 100}%)`;
 volumeBar.addEventListener('input', () => {

@@ -11,6 +11,8 @@ import (
 	"os"
 
 	"github.com/joho/godotenv"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 )
 
 //go:embed static/*
@@ -139,14 +141,87 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 	})
 
+	getOAuthConfig := func(r *http.Request) *oauth2.Config {
+		clientID := os.Getenv("GOOGLE_CLIENT_ID")
+		clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
+		if clientID == "" || clientSecret == "" {
+			return nil
+		}
+
+		scheme := "http"
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+			scheme = "https"
+		}
+		redirectURL := fmt.Sprintf("%s://%s/api/admin/oauth/callback", scheme, r.Host)
+
+		return &oauth2.Config{
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+			RedirectURL:  redirectURL,
+			Scopes:       []string{"https://www.googleapis.com/auth/drive"},
+			Endpoint:     google.Endpoint,
+		}
+	}
+
+	http.HandleFunc("/api/admin/oauth/login", func(w http.ResponseWriter, r *http.Request) {
+		if !isAdminAuthenticated(r) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		config := getOAuthConfig(r)
+		if config == nil {
+			http.Error(w, "OAuth Client ID or Client Secret not configured on server", http.StatusInternalServerError)
+			return
+		}
+
+		// Generate auth URL with offline access to get a refresh token
+		url := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline, oauth2.ApprovalForce)
+		http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+	})
+
+	http.HandleFunc("/api/admin/oauth/callback", func(w http.ResponseWriter, r *http.Request) {
+		code := r.URL.Query().Get("code")
+		if code == "" {
+			http.Error(w, "Missing authorization code", http.StatusBadRequest)
+			return
+		}
+
+		config := getOAuthConfig(r)
+		if config == nil {
+			http.Error(w, "OAuth configuration missing", http.StatusInternalServerError)
+			return
+		}
+
+		tok, err := config.Exchange(r.Context(), code)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to exchange token: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Write token.json in root
+		f, err := os.OpenFile("token.json", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to cache token: %v", err), http.StatusInternalServerError)
+			return
+		}
+		defer f.Close()
+		json.NewEncoder(f).Encode(tok)
+
+		// Redirect back to main admin panel with a success hash
+		http.Redirect(w, r, "/#admin-authorized", http.StatusTemporaryRedirect)
+	})
+
 	http.HandleFunc("/api/admin/status", func(w http.ResponseWriter, r *http.Request) {
 		authenticated := isAdminAuthenticated(r)
 		writable := driveService.writable
+		oauthConfigured := os.Getenv("GOOGLE_CLIENT_ID") != "" && os.Getenv("GOOGLE_CLIENT_SECRET") != ""
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"authenticated": authenticated,
-			"writable":      writable,
+			"authenticated":   authenticated,
+			"writable":        writable,
+			"oauthConfigured": oauthConfigured,
 		})
 	})
 

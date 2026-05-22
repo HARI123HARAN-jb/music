@@ -166,6 +166,16 @@
                         <div>
                             <h2>Library Administration</h2>
                             <p class="dashboard-subtext">Manage files and folders in Google Drive. Write status: <span id="driveWriteStatus" class="badge-status">Checking...</span></p>
+                            <!-- OAuth 2.0 Authorization Prompt Banner -->
+                            <div id="oauthPromptBanner" class="oauth-prompt-banner" style="display: none; margin-top: 12px; padding: 12px; background: rgba(29, 185, 84, 0.15); border: 1px dashed #1db954; border-radius: 8px;">
+                                <div class="oauth-banner-content" style="display: flex; align-items: center; justify-content: space-between; gap: 15px; flex-wrap: wrap;">
+                                    <div style="display: flex; align-items: center; gap: 10px; color: #e0e0e0; font-size: 0.9rem;">
+                                        <i class="fa-brands fa-google" style="color: #1db954; font-size: 1.1rem;"></i>
+                                        <span>Your personal Google account must be connected to authorize song uploading and deletion.</span>
+                                    </div>
+                                    <a id="oauthConnectBtn" href="/api/admin/oauth/login" class="btn-primary" style="padding: 6px 12px; font-size: 0.85rem; border-radius: 20px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;"><i class="fa-solid fa-link"></i> Connect Google Account</a>
+                                </div>
+                            </div>
                         </div>
                         <button id="adminLogoutBtn" class="btn-secondary"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
                     </div>
