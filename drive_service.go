@@ -27,29 +27,41 @@ func NewDriveService() (*DriveService, error) {
 	writable := false
 	ctx := context.Background()
 
-	// Locate the service account file in a highly robust way to account for Render working directory variations
+	// Locate the service account file in a highly robust way to account for Render working directory variations and double extensions
 	credsPath := ""
+	checkFiles := []string{"service_account.json", "service_account.json.json"}
+
 	if pathEnv := os.Getenv("SERVICE_ACCOUNT_PATH"); pathEnv != "" {
 		if _, statErr := os.Stat(pathEnv); statErr == nil {
 			credsPath = pathEnv
 		}
 	}
 	if credsPath == "" {
-		if _, statErr := os.Stat("service_account.json"); statErr == nil {
-			credsPath = "service_account.json"
-		}
-	}
-	if credsPath == "" {
-		if exePath, exeErr := os.Executable(); exeErr == nil {
-			exeCredsPath := filepath.Join(filepath.Dir(exePath), "service_account.json")
-			if _, statErr := os.Stat(exeCredsPath); statErr == nil {
-				credsPath = exeCredsPath
+		for _, f := range checkFiles {
+			if _, statErr := os.Stat(f); statErr == nil {
+				credsPath = f
+				break
 			}
 		}
 	}
 	if credsPath == "" {
-		if _, statErr := os.Stat("../service_account.json"); statErr == nil {
-			credsPath = "../service_account.json"
+		if exePath, exeErr := os.Executable(); exeErr == nil {
+			for _, f := range checkFiles {
+				exeCredsPath := filepath.Join(filepath.Dir(exePath), f)
+				if _, statErr := os.Stat(exeCredsPath); statErr == nil {
+					credsPath = exeCredsPath
+					break
+				}
+			}
+		}
+	}
+	if credsPath == "" {
+		for _, f := range checkFiles {
+			parentCredsPath := filepath.Join("..", f)
+			if _, statErr := os.Stat(parentCredsPath); statErr == nil {
+				credsPath = parentCredsPath
+				break
+			}
 		}
 	}
 
